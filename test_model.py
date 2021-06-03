@@ -7,7 +7,7 @@ from AutoML import AutoML
 models_cfg = {
     1: {
         "description": "1322_top3 dataset, Single-label",
-        "model_dir": "Models/single_top3",
+        "backup_dir": "Models/single_top3",
         "model_name": "Models/single_top3/single_top3_model.tflite",
         "labels_dict": "Models/single_top3/single_top3_dict.txt",
         "path_to_img": "Labels/",
@@ -16,7 +16,7 @@ models_cfg = {
 
     2: {
         "description": "1322_top5 dataset, Multi-label",
-        "model_dir": "Models/multi_top5",
+        "backup_dir": "Models/multi_top5",
         "model_name": "Models/multi_top5/multi_top5_model.tflite",
         "labels_dict": "Models/multi_top5/multi_top5_dict.txt",
         "path_to_img": "Labels/",
@@ -25,7 +25,7 @@ models_cfg = {
 
     3: {
         "description": "single_top5_all_imgs, Single-label",
-        "model_dir": "Models/single_top5_all_imgs",
+        "backup_dir": "Models/single_top5_all_imgs",
         "model_name": "Models/single_top5_all_imgs/single_top5_all_imgs_model.tflite",
         "labels_dict": "Models/single_top5_all_imgs/single_top5_all_imgs_dict.txt",
         "path_to_img": "Labels/",
@@ -34,7 +34,7 @@ models_cfg = {
 
     4: {
         "description": "top4_no12a dataset, Single-label",
-        "model_dir": "Models/single_top4_no12a",
+        "backup_dir": "Models/single_top4_no12a",
         "model_name": "Models/single_top4_no12a/single_top4_no12a_model.tflite",
         "labels_dict": "Models/single_top4_no12a/single_top4_no12a_dict.txt",
         "path_to_img": "Labels/",
@@ -43,7 +43,7 @@ models_cfg = {
 
     5: {
         "description": "NOT WORKING binary 12a and merged top4",
-        "model_dir": "Models/binary_12a_merged",
+        "backup_dir": "Models/binary_12a_merged",
         "model_name": "Models/binary_12a_merged/binary_12a_merged_model.tflite",
         "labels_dict": "Models/binary_12a_merged/binary_12a_merged_dict.txt",
         "path_to_img": "Labels/",
@@ -52,7 +52,7 @@ models_cfg = {
 
     6: {
         "description": "NOT WORKING binary 5ae and merged top4",
-        "model_dir": "Models/binary_5ae_merged",
+        "backup_dir": "Models/binary_5ae_merged",
         "model_name": "Models/binary_5ae_merged/binary_5ae_merged_model.tflite",
         "labels_dict": "Models/binary_5ae_merged/binary_5ae_merged_dict.txt",
         "path_to_img": "Labels/",
@@ -133,6 +133,14 @@ def slice_and_stack(wagon_img, wagon_labels, slices_predicts, wagon_predict=None
 
 
 def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False):
+    """
+
+    @param dataset_json: Полный dataset.json В первом for loop картинки только из "val_images"
+    @param model: Обученая сетка
+    @param labels: Массив лейблов на которых обучалась сетка
+    @param save_plots: Сохраняет графики accuracy для категории в cfg["backup_dir"]
+    @param multi_label: True если сетка обучена на мульти лейбл
+    """
     plot_x = []
     plot_y_1 = []
     plot_y_2 = []
@@ -283,12 +291,12 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
         plt.xlabel('threshold')
         plt.ylabel('%')
         # plt.show()
-        plt.savefig(os.path.join(model.cfg["model_dir"], 'roc_auc_category.png'))
+        plt.savefig(os.path.join(model.cfg["backup_dir"], 'roc_auc_category.png'))
 
 
 # TODO Сделать чтоб нормальный csv делал, щас это можно просто в помойку
 def create_predicts_csv(dataset_json, model):
-    with open(os.path.join(model.cfg["model_dir"], "predicts_new.csv"), 'w') as csvfile:
+    with open(os.path.join(model.cfg["backup_dir"], "predicts_new.csv"), 'w') as csvfile:
 
         spamwriter = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
@@ -500,7 +508,7 @@ if __name__ == "__main__":
     test(dataset_json, model, top_k,
          show_predictions=False,
          layers_aggregation=True,
-         generate_fps=False, save_fp_to=models_cfg[input_cfg]["model_dir"])
+         generate_fps=False, save_fp_to=models_cfg[input_cfg]["backup_dir"])
 
     if test_on_validatoin:
         test_on_val(dataset_json, model, model.labels, multi_label=True, save_plots=True)
