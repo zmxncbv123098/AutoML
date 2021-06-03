@@ -24,7 +24,7 @@ models_cfg = {
     },
 
     3: {
-        "description": "multilabeled_top5 dataset, Single-label",
+        "description": "single_top5_all_imgs, Single-label",
         "model_dir": "Models/single_top5_all_imgs",
         "model_name": "Models/single_top5_all_imgs/single_top5_all_imgs_model.tflite",
         "labels_dict": "Models/single_top5_all_imgs/single_top5_all_imgs_dict.txt",
@@ -57,7 +57,16 @@ models_cfg = {
         "labels_dict": "Models/binary_5ae_merged/binary_5ae_merged_dict.txt",
         "path_to_img": "Labels/",
         "json_file": "multilabeled_top5.json"
-    }
+    },
+
+    7: {
+        "description": "relabeled_val_top5 dataset, Multi-label",
+        "model_dir": "Models/multi_relabeled_top5",
+        "model_name": "Models/multi_relabeled_top5/multi_top5_relabe_model.tflite",
+        "labels_dict": "Models/multi_relabeled_top5/multi_top5_relabe_dict.txt",
+        "path_to_img": "Labels/",
+        "json_file": "multilabeled_top5_relabeled_val.json"
+    },
 
 }
 
@@ -129,7 +138,8 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
     plot_y_2 = []
 
     accuracy = {x: {"acc": 0, "values": []} for x in labels}
-    accuracy.setdefault("multi_label", [])
+    if multi_label:
+        accuracy.setdefault("multi_label", [])
 
     accuracy_roc = [{"thresh": y,
                      "below_thresh": 0,
@@ -216,11 +226,10 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
                     # print(predicted_cls, " | ", prob)
             layer_id += 1
 
-    accuracy["multi_label"] = int(sum(accuracy["multi_label"]) / len(accuracy["multi_label"]) * 100)
-
     print("Test set accuracy results:")
 
     if multi_label:
+        accuracy["multi_label"] = int(sum(accuracy["multi_label"]) / len(accuracy["multi_label"]) * 100)
         print("Test set accuracy = {} %".format(accuracy["multi_label"]))
 
     else:
