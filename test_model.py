@@ -61,12 +61,21 @@ models_cfg = {
 
     7: {
         "description": "relabeled_val_top5 dataset, Multi-label",
-        "model_dir": "Models/multi_relabeled_top5",
+        "backup_dir": "Models/multi_relabeled_top5",
         "model_name": "Models/multi_relabeled_top5/multi_top5_relabe_model.tflite",
         "labels_dict": "Models/multi_relabeled_top5/multi_top5_relabe_dict.txt",
         "path_to_img": "Labels/",
         "json_file": "multilabeled_top5_relabeled_val.json"
     },
+
+    8: {
+        "description": "relabeled_tmk_top5 dataset, Multi-label",
+        "backup_dir": "Models/multi_top5_relabeled_tmk",
+        "model_name": "Models/multi_top5_relabeled_tmk/multi_top5_relabeled_tmk_model.tflite",
+        "labels_dict": "Models/multi_top5_relabeled_tmk/multi_top5_relabeled_tmk_dict.txt",
+        "path_to_img": "Labels/",
+        "json_file": "multilabeled_top5_relabeled_tmk.json"
+    }
 
 }
 
@@ -141,13 +150,14 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
     @param save_plots: Сохраняет графики accuracy для категории в cfg["backup_dir"]
     @param multi_label: True если сетка обучена на мульти лейбл
     """
-    plot_x = []
-    plot_y_1 = []
-    plot_y_2 = []
+    # plot_x = []
+    # plot_y_1 = []
+    # plot_y_2 = []
 
-    accuracy = {x: {"acc": 0, "values": []} for x in labels}
-    if multi_label:
-        accuracy.setdefault("multi_label", [])
+    accuracy = {x: {"acc": 0, "values": [], "amount": 0} for x in labels}
+
+    # if multi_label:
+    #     accuracy.setdefault("multi_label", [])
 
     accuracy_roc = [{"thresh": y,
                      "below_thresh": 0,
@@ -187,6 +197,8 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
                     if ground_cls in labels:
                         predicted_cls, prob = slice_preds[0]["class"], slice_preds[0]["prob"]
 
+                        accuracy[ground_cls]["amount"] += 1
+
                         if ground_cls == predicted_cls:
                             accuracy[ground_cls]["values"].append(True)
 
@@ -205,16 +217,25 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
                                 accuracy_roc[n]["results"][ground_cls]["values"].append(False)
                 else:
                     ground_cls = wagon_labels["slices"][str(slice_id)]["class"]
-                    # predicted_cls, prob = slice_preds[0]["class"], slice_preds[0]["prob"]
-                    img_result = True
-                    for i in range(len(ground_cls)):
-                        if ground_cls[i] != slice_preds[i]["class"]:
-                            img_result = False
-                    accuracy["multi_label"].append(img_result)
+                    predicted_cls, prob = slice_preds[0]["class"], slice_preds[0]["prob"]
+
+                    # img_result = True
+                    # for i in range(len(ground_cls)):
+                    #     if ground_cls[i] != slice_preds[i]["class"]:
+                    #         img_result = False
+                    # accuracy["multi_label"].append(img_result)
 
                     for i, cls in enumerate(ground_cls):
                         prob = False
                         if cls in labels:
+
+                            # Подсчёт общей точности сетки для мульти лейбла
+                            accuracy[cls]["amount"] += 1
+                            if cls == predicted_cls:
+                                accuracy[cls]["values"].append(True)
+                            else:
+                                accuracy[cls]["values"].append(False)
+
                             for prediction in slice_preds:
                                 if cls == prediction["class"]:
                                     prob = prediction["prob"]
@@ -236,22 +257,24 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
 
     print("Test set accuracy results:")
 
-    if multi_label:
-        accuracy["multi_label"] = int(sum(accuracy["multi_label"]) / len(accuracy["multi_label"]) * 100)
-        print("Test set accuracy = {} %".format(accuracy["multi_label"]))
+    # if multi_label:
+    #     accuracy["multi_label"] = int(sum(accuracy["multi_label"]) / len(accuracy["multi_label"]) * 100)
+    #     print("Test set accuracy = {} %".format(accuracy["multi_label"]))
+    #
+    # else:
+    total_acc = {"total_acc": 0, "total_imgs": 0}
 
-    else:
-        total_acc = []
+    for cls in accuracy:
+        accuracy[cls]["acc"] = sum(accuracy[cls]["values"]) / len(accuracy[cls]["values"])
+        total_acc["total_acc"] += accuracy[cls]["acc"] * len(accuracy[cls]["values"])
+        total_acc["total_imgs"] += len(accuracy[cls]["values"])
 
-        for cls in accuracy:
-            total_acc.extend(accuracy[cls]["values"])
-            accuracy[cls] = int(sum(accuracy[cls]["values"]) / len(accuracy[cls]["values"]) * 100)
-        total_acc = int(sum(total_acc) / len(total_acc) * 100)
+    total_acc = int((total_acc["total_acc"] / total_acc["total_imgs"]) * 100)
 
-        for cls in accuracy:
-            print("{} = {}% ".format(
-                cls, accuracy[cls]))
-        print("total accuracy = {}%".format(total_acc))
+    for cls in accuracy:
+        print("{} = {}% ".format(
+            cls, int(accuracy[cls]["acc"] * 100)))
+    print("total accuracy = {}%".format(total_acc))
 
     # - ! - ! - ! - !
 
@@ -266,9 +289,9 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
     for n, i in enumerate(total_acc_roc):
         total_acc_roc[n] = int(sum(total_acc_roc[n]) / len(total_acc_roc[n]) * 100)
 
-        plot_x.append(accuracy_roc[n]["thresh"])
-        plot_y_1.append(accuracy_roc[n]["above_thresh"])
-        plot_y_2.append(total_acc_roc[n])
+    #     plot_x.append(accuracy_roc[n]["thresh"])
+    #     plot_y_1.append(accuracy_roc[n]["above_thresh"])
+    #     plot_y_2.append(total_acc_roc[n])
 
     print("ROC auc:")
     for n, i in enumerate(total_acc_roc):
@@ -491,9 +514,9 @@ def test(dataset_json, model, top_k, show_predictions=False, layers_aggregation=
 
 if __name__ == "__main__":
 
-    input_cfg = 3
+    input_cfg = 2
 
-    test_on_validatoin = False
+    test_on_validatoin = True
 
     path_to_img = models_cfg[input_cfg]["path_to_img"]
     with open(os.path.join(path_to_img, models_cfg[input_cfg]["json_file"]), "r") as f:
@@ -505,10 +528,10 @@ if __name__ == "__main__":
     top_k = 3
 
     # TODO оформмить всё в функцию которая на вход принимет значения generate_fps, show_predictions, create_csvfile
-    test(dataset_json, model, top_k,
-         show_predictions=False,
-         layers_aggregation=True,
-         generate_fps=False, save_fp_to=models_cfg[input_cfg]["backup_dir"])
+    # test(dataset_json, model, top_k,
+    #      show_predictions=False,
+    #      layers_aggregation=True,
+    #      generate_fps=False, save_fp_to=models_cfg[input_cfg]["backup_dir"])
 
     if test_on_validatoin:
-        test_on_val(dataset_json, model, model.labels, multi_label=True, save_plots=True)
+        test_on_val(dataset_json, model, model.labels, multi_label=True, save_plots=False)
