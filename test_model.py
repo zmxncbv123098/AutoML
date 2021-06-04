@@ -150,14 +150,8 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
     @param save_plots: Сохраняет графики accuracy для категории в cfg["backup_dir"]
     @param multi_label: True если сетка обучена на мульти лейбл
     """
-    # plot_x = []
-    # plot_y_1 = []
-    # plot_y_2 = []
 
     accuracy = {x: {"acc": 0, "values": [], "amount": 0} for x in labels}
-
-    # if multi_label:
-    #     accuracy.setdefault("multi_label", [])
 
     accuracy_roc = [{"thresh": y,
                      "below_thresh": 0,
@@ -219,12 +213,6 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
                     ground_cls = wagon_labels["slices"][str(slice_id)]["class"]
                     predicted_cls, prob = slice_preds[0]["class"], slice_preds[0]["prob"]
 
-                    # img_result = True
-                    # for i in range(len(ground_cls)):
-                    #     if ground_cls[i] != slice_preds[i]["class"]:
-                    #         img_result = False
-                    # accuracy["multi_label"].append(img_result)
-
                     for i, cls in enumerate(ground_cls):
                         prob = False
                         if cls in labels:
@@ -257,11 +245,6 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
 
     print("Test set accuracy results:")
 
-    # if multi_label:
-    #     accuracy["multi_label"] = int(sum(accuracy["multi_label"]) / len(accuracy["multi_label"]) * 100)
-    #     print("Test set accuracy = {} %".format(accuracy["multi_label"]))
-    #
-    # else:
     total_acc = {"total_acc": 0, "total_imgs": 0}
 
     for cls in accuracy:
@@ -289,11 +272,7 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
     for n, i in enumerate(total_acc_roc):
         total_acc_roc[n] = int(sum(total_acc_roc[n]) / len(total_acc_roc[n]) * 100)
 
-    #     plot_x.append(accuracy_roc[n]["thresh"])
-    #     plot_y_1.append(accuracy_roc[n]["above_thresh"])
-    #     plot_y_2.append(total_acc_roc[n])
-
-    print("ROC auc:")
+    print("Threshold Accuracy:")
     for n, i in enumerate(total_acc_roc):
         print("threshold: {} total accuracy: {}% \nclasses accuracy: {}\n".format(
             accuracy_roc[n]["thresh"], total_acc_roc[n], accuracy_roc[n]["results"]
