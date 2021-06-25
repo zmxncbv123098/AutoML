@@ -1,6 +1,9 @@
 import numpy as np
 import tensorflow as tf
 import copy
+import csv
+import json
+
 from xlam import *
 from AutoML import AutoML
 
@@ -493,7 +496,7 @@ def test(dataset_json, model, top_k, show_predictions=False, layers_aggregation=
 
 if __name__ == "__main__":
 
-    input_cfg = 2
+    input_cfg = 3
 
     test_on_validatoin = True
 
@@ -501,6 +504,7 @@ if __name__ == "__main__":
     with open(os.path.join(path_to_img, models_cfg[input_cfg]["json_file"]), "r") as f:
         dataset_json = json.load(f)
 
+    # TODO переменная захардкодена для всех функций. Сделать нормально.
     val_dataset_path = "Labels/val_dataset"
 
     model = AutoML(cfg=models_cfg[input_cfg])
@@ -513,4 +517,4 @@ if __name__ == "__main__":
     #      generate_fps=False, save_fp_to=models_cfg[input_cfg]["backup_dir"])
 
     if test_on_validatoin:
-        test_on_val(dataset_json, model, model.labels, multi_label=True, save_plots=False)
+        test_on_val(dataset_json, model, model.labels, multi_label=False, save_plots=False)
