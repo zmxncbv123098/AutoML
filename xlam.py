@@ -1,16 +1,20 @@
 import os
+import sys
+import uuid
 import cv2
 import numpy as np
 import string
 import random
-# import requests
-import json
-import csv
-import time
+# import msgpack
+import requests
 import base64
 import shutil
 import glob
 import logging
+import time
+import traceback
+import multiprocessing
+import signal
 from logging.handlers import RotatingFileHandler
 
 """
@@ -125,41 +129,32 @@ def get_random_name(name_len=22):
     return ''.join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(name_len))
 
 
-def get_filelist(directory, ext, exc=None, separate=False):
+def get_filelist(directory, ext):
     """
-    get files list with required extensions
-
-    separate=True creates [[path], [name], [ext]]
-    that may be useful is case of work with images/labels files
-
-    Usage:
-    imgs_list = get_filelist(dir, ".jpg", True)
-    labels_list = get_filelist(dir, ".txt", True)
-    for label_name in labels_list[1]:
-        id = labels_list[1].index(label_name)
-        label_file = os.path.join(labels_list[0][id], label_name + ".txt")
-        img_file = os.path.join(imgs_list[0][id], label_name + ".jpg")
-    ...
+    get files list with required extensions list
     """
 
     ret_list = []
-    if separate:
-        ret_list = [[], [], []]
     for folder, subs, files in os.walk(directory):
+
         for filename in files:
-            if filename.endswith(ext):
 
-                if exc is not None:
-                    if exc in filename:
-                        continue
+            if filename.split(".")[-1] in ext:
+                ret_list.append(os.path.join(folder, filename))
 
-                if separate:
-                    ret_list[0].append(folder)
-                    ret_list[1].append(".".join(filename.split(".")[:-1]))
-                    ret_list[2].append(ext)
-                else:
-                    ret_list.append(os.path.join(folder, filename))
     return ret_list
+
+
+def get_random_uuid():
+    return str(uuid.uuid4())
+
+
+def get_mac():
+    return str(uuid.getnode())
+
+
+def get_format_date(date_format="%d-%m-%Y_%H:%M:%S"):
+    return time.strftime(date_format)
 
 
 def find_free_port(p_from, p_to):
@@ -287,9 +282,9 @@ def draw_bbox(img, bbox, label="", bbox_color=(255, 25, 25), text_color=(225, 25
     if label != "":
         tf = max(tl - 1, 1)  # font thickness
         t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
-        c2 = c1[0] + t_size[0], c1[1] + t_size[1] - 3
+        c2 = c1[0]+ t_size[0] + 2, c1[1] + t_size[1] + 4
         cv2.rectangle(img, c1, c2, bbox_color, -1)  # filled
-        cv2.putText(img, label, (c1[0]+2, c2[1]-1), 0, tl / 4, text_color, thickness=tf,
+        cv2.putText(img, label, (c1[0] + 2, c1[1] + t_size[1]), 0, tl / 3, text_color, thickness=tf,
                     lineType=cv2.LINE_AA)
     return img
 
@@ -356,7 +351,7 @@ def get_overlap(bbox1, bbox2):
     if bbox_area == 0.:
         return 0
 
-    res = inter_area * 100 / bbox_area
+    res = inter_area / bbox_area
     return res
 
 
@@ -372,10 +367,21 @@ def cut_bbox(img, bbox, x_expand=.0, y_expand=.0):
     also return new image coordinates inside original image
     """
 
-    yK = + int((bbox[3] - bbox[1]) * y_expand)
-    xK = + int((bbox[2] - bbox[0]) * x_expand)
+    if x_expand > 1.:
+        x_exp = x_expand % 1
+    else:
+        x_exp = 1 - x_expand
 
-    new_bbox = [bbox[0] - xK, bbox[1] - yK, bbox[2] + xK, bbox[3] + yK]
+    if y_expand > 1.:
+        y_exp = y_expand % 1
+    else:
+        y_exp = 1 - y_expand
+
+    yK = + int(((bbox[3] - bbox[1]) * y_exp) / 2)
+    xK = + int(((bbox[2] - bbox[0]) * x_exp) / 2)
+
+    new_bbox = [bbox[0] - xK if x_expand > 1. else bbox[0] + xK, bbox[1] - yK if y_expand > 1. else bbox[1] + yK,
+                bbox[2] + xK if x_expand > 1. else bbox[2] - xK, bbox[3] + yK if y_expand > 1. else bbox[3] - yK]
 
     if new_bbox[0] < 0:
         new_bbox[0] = 1
@@ -437,7 +443,7 @@ def rotate_image(img, ang):
 
     img_center = tuple(np.array(img.shape[1::-1]) / 2)
     rot_mat = cv2.getRotationMatrix2D(img_center, ang, 1.0)
-    return cv2.warpAffine(img, rot_mat, img.shape[1::-1], flags=cv2.INTER_LINEAR), rot_mat
+    return cv2.warpAffine(img, rot_mat, img.shape[1::-1], flags=cv2.INTER_LINEAR)
 
 
 def warp_image(img, pts):
@@ -486,7 +492,7 @@ def warp_image(img, pts):
     M = cv2.getPerspectiveTransform(pts, dst)
 
     # return the warped image
-    return cv2.warpPerspective(img, M, (maxWidth, maxHeight)), M
+    return cv2.warpPerspective(img, M, (maxWidth, maxHeight))
 
 
 def stack_images_for_show(imgs_list, stack_shape, row_max=0, messages=None):
@@ -729,16 +735,6 @@ class Disk:
 
 # ----------------  Other
 
-def timeit(method):
-    def timed(*args, **kw):
-        ts = time.time()
-        result = method(*args, **kw)
-        te = time.time()
-        print('{}  time: {} s'.format(method.__name__, (te - ts)))
-        return result
-    return timed
-
-
 class MotionDetector:
 
     """
@@ -828,44 +824,206 @@ class MotionDetector:
         return results
 
 
-def imgaug_str_repr(aug_seq):
-    augmentation_str = ""
-    for aug in aug_seq.get_all_children():
+class Reader:
+
+    def __init__(self, name, src, type):
+
+        self.name = name
+        self.src = src
+        self.type = type
+
+        self.connected = False
+
+        self.q = multiprocessing.Queue(maxsize=1)
+        self.proc = None
+
+        self.connect_and_start_read()
+
+    def read_rtsp(self, name, src):
+
         try:
-            name = aug.name.replace("Unnamed", "")
-            parameters = ""
-            for parameter in aug.get_parameters():
-                parameters += str(parameter).replace("Deterministic", "")
-            augmentation_str += name + " | " + parameters + "\n"
-            try:
-                for child in aug.get_all_children():
-                    name = child.name.replace("Unnamed", "")
-                    child_parameters = ""
-                    for child_parameter in child.get_parameters():
-                        if name == "MotionBlur" and type(child_parameter) != str:
-                            child_parameters += ("k=%s, angle=%s, direction=%s, order=%s" % (
-                            child_parameter.k, child_parameter.angle,
-                            child_parameter.direction, child_parameter.order)).replace("Deterministic", "")
-                        else:
-                            child_parameters += str(child_parameter).replace("Deterministic", "")
-                    augmentation_str += " - " + name + " | " + child_parameters + "\n"
-            except AttributeError:
-                pass
-        except AttributeError:
+
+            proc_out = {"name": name}
+
+            cap = cv2.VideoCapture(src)
+
+            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            fps = int(cap.get(cv2.CAP_PROP_FPS))
+            fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+
+            proc_out["meta"] = {"h": h, "w": w, "fps": fps, "fourcc": fourcc}
+
+            while True:
+
+                status, frame = cap.read()
+                proc_out["status"], proc_out["frame"] = status, frame
+                proc_out["ts"] = time.time()
+
+                self.q.put(proc_out)
+
+        except:
+            self.q.put({"name": name, "error": traceback.format_exc()})
+            sys.exit()
+
+    def read_from_files(self, name, src, type):
+
+        files_list = []
+        if type == "directory":
+            files_list.extend(get_filelist(src, ["jpg", "png"]))
+            files_list.extend(get_filelist(src, ["mp4", "avi", "mkv"]))
+
+        elif type == "file":
+            files_list.append(src)
+
+        try:
+
+            proc_out = {"name": name}
+
+            for n, file in enumerate(files_list):
+
+                if file.split(".")[-1] in ["mp4", "avi", "mkv"]:
+
+                    cap = cv2.VideoCapture(file)
+
+                    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    fps = int(cap.get(cv2.CAP_PROP_FPS))
+                    fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+
+                    proc_out["meta"] = {"h": h, "w": w, "fps": fps, "fourcc": fourcc}
+
+                    while True:
+                        status, frame = cap.read()
+                        proc_out["status"], proc_out["frame"] = status, frame
+                        proc_out["ts"] = time.time()
+
+                        self.q.put(proc_out)
+
+                elif file.split(".")[-1] in ["jpg", "png"]:
+
+                    cap = cv2.VideoCapture(file)
+                    status, frame = cap.read()
+                    proc_out["status"], proc_out["frame"] = status, frame
+                    self.q.put(proc_out)
+
+            self.q.put({"status": "finished", "frame": 0})
+
+        except:
+            self.q.put({"name": name, "error": traceback.format_exc()})
+            sys.exit()
+
+    def get_frame(self):
+
+        empty_q_time = 0.
+
+        frame = None
+        frame_meta = None
+
+        while frame is None:
+
+            if not self.proc.is_alive():
+                self.connected = False
+                self.kill()
+                self.connect_and_start_read()
+                return {"frame": frame, "frame_meta": frame_meta}
+
+            if self.q.empty():
+                empty_q_time += 0.1
+                time.sleep(0.1)
+
+                if empty_q_time > 15:
+                    self.connected = False
+                    self.kill()
+                    self.connect_and_start_read()
+                    return {"frame": frame, "frame_meta": frame_meta}
+
+                continue
+
+            out = self.q.get()
+
+            if "error" in out:
+                self.connected = False
+                print("\nREADER PROCESS ERROR:\n", out["error"])
+                self.kill()
+                self.connect_and_start_read()
+                return {"error": out["error"]}
+
+            elif out["status"] is False:
+                self.connected = False
+                print("\nREADER FALSE STATUS\n")
+                self.kill()
+                self.connect_and_start_read()
+                return {"frame": frame, "frame_meta": frame_meta}
+
+            elif out["frame"] is None:
+                self.connected = False
+                print("\nREADER NONE FRAME\n")
+                self.kill()
+                self.connect_and_start_read()
+                return {"frame": frame, "frame_meta": frame_meta}
+
+            self.connected = True
+            frame = out["frame"]
+            frame_meta = out["meta"]
+
+        return {"frame": frame, "frame_meta": frame_meta}
+
+    def kill(self):
+        try:
+            os.kill(self.proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
             pass
 
-    return augmentation_str
+    def connect_and_start_read(self):
+
+        if self.type in ["webcam", "rtsp_stream"]:
+            self.proc = multiprocessing.Process(target=self.read_rtsp, args=(self.name, self.src,))
+
+        elif self.type in ["file", "directory"]:
+            self.proc = multiprocessing.Process(target=self.read_from_files, args=(self.name, self.src, self.type,))
+
+        self.proc.start()
+        time.sleep(2)
+
+
+class Writer:
+
+    def __init__(self, file_name, fps, height, width, fourcc='mp4v'):
+        self.wr = cv2.VideoWriter(file_name, cv2.VideoWriter_fourcc(*fourcc), int(fps), (width, height))
+
+    def write_to_file(self, frame):
+        self.wr.write(frame)
+
+    def finish_writing(self):
+        self.wr.release()
+
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+
+
+# def multi_proc_generator():
+
 
 
 if __name__ == "__main__":
 
     # UPDATE ALL xlam files
 
-    main_xmal = "/home/ea/projects/utils/xlam.py"
+    main_xmal = "./xlam.py"
     xlams = []
 
     # search
-    for root, dirs, files in os.walk("/home/ea/projects"):
+    for root, dirs, files in os.walk("/home/mikhail/PycharmProjects"):
         for file in files:
             if "xlam" in file and file.endswith(".py"):
                 file_path = os.path.join(root, file)
@@ -876,5 +1034,8 @@ if __name__ == "__main__":
 
     # update
     for xlam in xlams:
-        shutil.copy(main_xmal, xlam)
+        try:
+            shutil.copy(main_xmal, xlam)
+        except shutil.SameFileError:
+            continue
 
