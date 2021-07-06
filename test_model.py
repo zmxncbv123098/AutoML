@@ -77,7 +77,7 @@ models_cfg = {
         "model_name": "Models/multi_top5_relabeled_tmk/multi_top5_relabeled_tmk_model.tflite",
         "labels_dict": "Models/multi_top5_relabeled_tmk/multi_top5_relabeled_tmk_dict.txt",
         "path_to_img": "Labels/",
-        "json_file": "multilabeled_top5_relabeled_tmk.json"
+        "json_file": "top5_relabeled_tmk_with_id.json"  # "multilabeled_top5_relabeled_tmk.json"
     }
 
 }
@@ -301,62 +301,86 @@ def test_on_val(dataset_json, model, labels, save_plots=False, multi_label=False
 
 # TODO Сделать чтоб нормальный csv делал, щас это можно просто в помойку
 def create_predicts_csv(dataset_json, model):
-    with open(os.path.join(model.cfg["backup_dir"], "predicts_new.csv"), 'w') as csvfile:
+    with open("layers_and_slices_preds.csv", 'w') as csvfile:
 
         spamwriter = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-        for img_id, val_img in enumerate(dataset_json["val"]):
+        layer_id = 0
+        for val_sample in dataset_json["val_images"]:
 
-            ground = val_img["cls"]
-            ground_list = ["", "", ""]
+            print("{}/{}".format(layer_id, len(dataset_json["val_images"])))
 
-            ground_str = ""
-            for nn, cls in enumerate(ground):
-                if nn + 1 == len(ground):
-                    ground_str += cls
-                    ground_list[nn] = cls
-                else:
-                    ground_str += "{}/".format(cls)
-                    ground_list[nn] = cls
+            image_name = os.path.split(val_sample["img"])[1]
+            img = cv2.imread(os.path.join(val_dataset_path, os.path.split(val_sample["img"])[1]))
 
-            img_name = val_img["img"]
-            img_path = os.path.join(dataset_json["dataset_dir"], img_name)
+            for n, wagon_id in enumerate(val_sample["labels"]):
+                id_ = val_sample["wagon_id"]
+                wagon_labels = val_sample["labels"][wagon_id]
 
-            img = cv2.imread(img_path)
+                wagon_cls = wagon_labels["class"]
+                wagon_box_rel = wagon_labels["bbox"]
+                wagon_box = xcycwh_to_xyxy(imh=img.shape[0], imw=img.shape[1], bbox=wagon_box_rel)
 
-            img = resize_image(img=img,
-                               height=model.input_shape[1],
-                               width=model.input_shape[2],
-                               letterbox=False)
+                wagon_img = img[wagon_box[1]:wagon_box[3], wagon_box[0]:wagon_box[2]].copy()
 
-            predicts = model.predict([img], top_k=3)
+                # TODO запись данных для слоя, затем после для каждого слоя
+                # 3000x700 - best shape for 5 slices 1000x500 now
+                wagon_img = resize_image(wagon_img, width=3000, height=700)
+                slices_images = model.slice_wagon_img(wagon_img)
+                slices_images_res = [model.preprocess_slice(x) for x in slices_images]
 
-            predicts_str = ""
+                slices_predicts = model.predict(batch=slices_images_res, top_k=top_k)
 
-            pred_list = []
-            prod_list = []
-            for slice_preds in predicts:
-                for nn, pred_cls in enumerate(slice_preds):
-                    if nn + 1 == len(slice_preds):
-                        pred_list.append(pred_cls["class"])
-                        prod_list.append(pred_cls["prob"])
-                        predicts_str += "{}_{}".format(pred_cls["class"], pred_cls["prob"])
+                layer_predicts_sum = {}
+
+                print_str = ""
+                for slice_id, slice_preds in enumerate(slices_predicts):
+
+                    for nn, pred_cls in enumerate(slice_preds):
+
+                        if pred_cls["class"] not in layer_predicts_sum:
+                            layer_predicts_sum[pred_cls["class"]] = 0.
+
+                        # if pred_cls["prob"] > threshold:
+                        layer_predicts_sum[pred_cls["class"]] += pred_cls["prob"]
+
+                        if nn + 1 == len(slice_preds):
+                            print_str += "{}_{}||".format(pred_cls["class"], pred_cls["prob"])
+                        else:
+                            print_str += "{}_{}/".format(pred_cls["class"], pred_cls["prob"])
+
+                # TODO normalize slice predict before layer
+                wagon_predict = ""
+                total_prob = sum(layer_predicts_sum.values())
+                for nn, i in enumerate(layer_predicts_sum):
+                    if nn + 1 == len(layer_predicts_sum):
+                        wagon_predict += i + "_" + str(round(layer_predicts_sum[i] / total_prob, 2))
                     else:
-                        pred_list.append(pred_cls["class"])
-                        prod_list.append(pred_cls["prob"])
-                        predicts_str += "{}_{}/".format(pred_cls["class"], pred_cls["prob"])
-            print(predicts_str)
+                        wagon_predict += i + "_" + str(round(layer_predicts_sum[i] / total_prob, 2)) + "/"
 
-            row = [img_id, img_name]
-            row.extend(ground_list)
-            row.extend(pred_list)
-            row.extend(prod_list)
+                # Формирование строки для слоя для эксель
+                layer_row = [image_name, "Вагон целиком", id_]
+                layer_row_wagon_clss = []
+                for i in wagon_cls.split("/"):
+                    layer_row_wagon_clss.append(i)
+                for _ in range(3 - len(layer_row_wagon_clss)):
+                    layer_row_wagon_clss.append("")
+                layer_row.extend(layer_row_wagon_clss)
+                for i in wagon_predict.split("/"):
+                    layer_row.append(i)
+                spamwriter.writerow(layer_row)
 
-            # Запись в формате {}/{}
-            spamwriter.writerow([img_id, img_name, ground_str, predicts_str])
+                # Формирование строк для слайсов
+                for i in range(5):
+                    slice_row = [image_name, "Кусок" + str(i+1), id_]
+                    for cl in wagon_labels["slices"][str(i)]["class"]:
+                        slice_row.append(cl)
+                    for _ in range(3 - len(wagon_labels["slices"][str(i)]["class"])):
+                        slice_row.append("")
+                    slice_row.extend(print_str.split("||")[i].split("/"))
+                    spamwriter.writerow(slice_row)
 
-            # Запись в каждую ячейку
-            # spamwriter.writerow(row)
+                print(print_str)
 
 
 def test(dataset_json, model, top_k, show_predictions=False, layers_aggregation=False, generate_fps=False,
@@ -496,9 +520,10 @@ def test(dataset_json, model, top_k, show_predictions=False, layers_aggregation=
 
 if __name__ == "__main__":
 
-    input_cfg = 3
+    input_cfg = 8
 
-    test_on_validatoin = True
+    test_on_validatoin = False
+    create_csv = True
 
     path_to_img = models_cfg[input_cfg]["path_to_img"]
     with open(os.path.join(path_to_img, models_cfg[input_cfg]["json_file"]), "r") as f:
@@ -518,3 +543,6 @@ if __name__ == "__main__":
 
     if test_on_validatoin:
         test_on_val(dataset_json, model, model.labels, multi_label=False, save_plots=False)
+
+    if create_csv:
+        create_predicts_csv(dataset_json, model)
