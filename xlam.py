@@ -1023,7 +1023,7 @@ if __name__ == "__main__":
     xlams = []
 
     # search
-    for root, dirs, files in os.walk("/home/mikhail/PycharmProjects"):
+    for root, dirs, files in os.walk("/home/mbeshkurov/PycharmProjects"):
         for file in files:
             if "xlam" in file and file.endswith(".py"):
                 file_path = os.path.join(root, file)
